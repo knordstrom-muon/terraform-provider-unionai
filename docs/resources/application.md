@@ -71,7 +71,7 @@ output "app_secret" {
 
 ## Important Notes
 
-- Leave optional URIs and sets unset instead of `""` or `[]`; empty values are stored as unset.
+- Leave optional URIs and sets unset; `""` and `[]` are rejected because Union stores them as unset.
 - The `secret` attribute contains sensitive OAuth credentials. Ensure your Terraform state is stored securely.
 - Union rotates the secret on every in-place update; the previous secret stops working. Propagate `secret` to its consumers after any update.
 - Applications created through this resource always skip default policy assignments for their backing OAuth app. Manage access explicitly with application access resources if needed.

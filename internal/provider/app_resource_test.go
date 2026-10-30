@@ -5,7 +5,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/unionai/cloud/gen/pb-go/identity"
@@ -256,6 +259,29 @@ func TestAppResource_Read_KeepsUnsetOptionalNull(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Read stores empty values as null, so configured "" / [] would never converge.
+func TestAppResource_Schema_RejectsEmptyOptionalValues(t *testing.T) {
+	attrs := testAppSchema(t).Schema.Attributes
+	for _, name := range []string{"client_uri", "logo_uri", "policy_uri", "tos_uri"} {
+		resp := &validator.StringResponse{}
+		for _, v := range attrs[name].(schema.StringAttribute).Validators {
+			v.ValidateString(context.Background(), validator.StringRequest{Path: path.Root(name), ConfigValue: types.StringValue("")}, resp)
+		}
+		if !resp.Diagnostics.HasError() {
+			t.Errorf("Expected %s = \"\" to be rejected", name)
+		}
+	}
+	for _, name := range []string{"redirect_uris", "response_types"} {
+		resp := &validator.SetResponse{}
+		for _, v := range attrs[name].(schema.SetAttribute).Validators {
+			v.ValidateSet(context.Background(), validator.SetRequest{Path: path.Root(name), ConfigValue: types.SetValueMust(types.StringType, nil)}, resp)
+		}
+		if !resp.Diagnostics.HasError() {
+			t.Errorf("Expected %s = [] to be rejected", name)
+		}
 	}
 }
 

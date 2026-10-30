@@ -11,6 +11,7 @@ require (
 	github.com/flyteorg/flyte/flyteidl v1.16.1
 	github.com/flyteorg/flyte/v2/gen/go/flyteidl2 v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/terraform-plugin-framework v1.16.1
+	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.29.0
 	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-testing v1.13.3

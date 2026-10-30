@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/unionai/cloud/gen/pb-go/identity"
 	"google.golang.org/grpc/codes"
@@ -81,6 +84,7 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"client_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI of the application",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"consent_method": schema.StringAttribute{
 				Optional:            true,
@@ -94,20 +98,24 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"logo_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI that references a logo for the application",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"policy_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI that the application provides to the end-user to read about how the profile data will be used",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"redirect_uris": schema.SetAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
 				MarkdownDescription: "List of redirect URIs for the application",
+				Validators:          []validator.Set{setvalidator.SizeAtLeast(1)},
 			},
 			"response_types": schema.SetAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
 				MarkdownDescription: "List of OAuth 2.0 response types the application may use",
+				Validators:          []validator.Set{setvalidator.SizeAtLeast(1)},
 			},
 			"token_endpoint_auth_method": schema.StringAttribute{
 				Optional:            true,
@@ -116,6 +124,7 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"tos_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI that the client provides to the end-user to read about the client's terms of service",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"secret": schema.StringAttribute{
 				Computed:            true,
