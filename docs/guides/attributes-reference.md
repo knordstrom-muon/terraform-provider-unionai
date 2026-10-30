@@ -16,6 +16,7 @@ This guide provides a comprehensive reference of all attributes available for Un
 
 **Outputs:**
 - `id` (String) - API key identifier
+- `client_id` (String) - Server-assigned OAuth client ID
 - `secret` (String, Sensitive) - API key secret (only available after creation)
 
 **Example Output Usage:**
@@ -31,8 +32,8 @@ output "api_key" {
 ### unionai_application
 
 **Inputs:**
-- `client_id` (String, Required) - OAuth client ID (forces replacement)
 - `client_name` (String, Required) - Application name
+- `client_id` (String, Optional, Deprecated) - Requested OAuth client ID; Union may ignore it (forces replacement)
 - `client_uri` (String, Optional) - Application website URI
 - `consent_method` (String, Optional) - Consent method
 - `grant_types` (Set of String, Optional) - OAuth grant types
@@ -44,8 +45,8 @@ output "api_key" {
 - `tos_uri` (String, Optional) - Terms of service URI
 
 **Outputs:**
-- `id` (String) - Application identifier
-- `client_id` (String) - OAuth client ID
+- `id` (String) - Server-assigned OAuth client ID
+- `client_id` (String) - Requested OAuth client ID, or `id` if unset
 - `client_name` (String) - Application name
 - `client_uri` (String) - Application website URI
 - `consent_method` (String) - Consent method
@@ -646,7 +647,7 @@ output "api_credentials" {
 
 output "app_oauth" {
   value = {
-    client_id     = unionai_application.app.client_id
+    client_id     = unionai_application.app.id
     client_secret = unionai_application.app.secret
   }
   sensitive = true

@@ -33,8 +33,9 @@ type ApiKeyResource struct {
 
 // ApiKeyResourceModel describes the resource data model.
 type ApiKeyResourceModel struct {
-	Id     types.String `tfsdk:"id"`
-	Secret types.String `tfsdk:"secret"`
+	Id       types.String `tfsdk:"id"`
+	ClientId types.String `tfsdk:"client_id"`
+	Secret   types.String `tfsdk:"secret"`
 }
 
 func (r *ApiKeyResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -52,6 +53,13 @@ func (r *ApiKeyResource) Schema(ctx context.Context, req resource.SchemaRequest,
 				MarkdownDescription: "API key identifier",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"client_id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Server-assigned OAuth client ID of the API key's application",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"secret": schema.StringAttribute{
@@ -126,6 +134,8 @@ func (r *ApiKeyResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
+	data.ClientId = types.StringValue(app.App.ClientId)
+
 	// Encode the secret. Base64 of <endpoint>:<client_id>:<client_secret>:None
 	secret := fmt.Sprintf("%s:%s:%s:None", r.host, app.App.ClientId, app.App.ClientSecret)
 	data.Secret = types.StringValue(base64.StdEncoding.EncodeToString([]byte(secret)))
@@ -144,9 +154,9 @@ func (r *ApiKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	_, err := r.conn.Get(ctx, &identity.GetAppRequest{
+	app, err := r.conn.Get(ctx, &identity.GetAppRequest{
 		Organization: r.org,
-		ClientId:     data.Id.ValueString(),
+		ClientId:     data.clientId(),
 	})
 	if err != nil {
 		// Catch gRPC error if the API key is not found
@@ -160,6 +170,7 @@ func (r *ApiKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 		)
 		return
 	}
+	data.ClientId = types.StringValue(app.App.ClientId)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -191,7 +202,7 @@ func (r *ApiKeyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 	_, err := r.conn.Delete(ctx, &identity.DeleteAppRequest{
 		Organization: r.org,
-		ClientId:     data.Id.ValueString(),
+		ClientId:     data.clientId(),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -204,4 +215,16 @@ func (r *ApiKeyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 func (r *ApiKeyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// clientId recovers the client ID for state written before client_id was tracked: from the
+// encoded secret (it holds the server-assigned ID), else id.
+func (m ApiKeyResourceModel) clientId() string {
+	if !m.ClientId.IsNull() {
+		return m.ClientId.ValueString()
+	}
+	if _, clientId, _, _, err := decodeApiKey(m.Secret.ValueString()); err == nil && clientId != "" {
+		return clientId
+	}
+	return m.Id.ValueString()
 }

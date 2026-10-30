@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/unionai/cloud/gen/pb-go/identity"
 	"google.golang.org/grpc/codes"
@@ -59,12 +62,18 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Application identifier",
+				MarkdownDescription: "Server-assigned OAuth client ID of the application",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"client_id": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Application identifier",
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Requested client ID. Defaults to `id`. Union may assign a different client ID; use `id` for authentication.",
+				DeprecationMessage:  "Union assigns client IDs server-side and may ignore this value. Remove it and use `id`; adding it to an existing resource forces replacement.",
 				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
@@ -75,6 +84,7 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"client_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI of the application",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"consent_method": schema.StringAttribute{
 				Optional:            true,
@@ -88,20 +98,24 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"logo_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI that references a logo for the application",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"policy_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI that the application provides to the end-user to read about how the profile data will be used",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"redirect_uris": schema.SetAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
 				MarkdownDescription: "List of redirect URIs for the application",
+				Validators:          []validator.Set{setvalidator.SizeAtLeast(1)},
 			},
 			"response_types": schema.SetAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
 				MarkdownDescription: "List of OAuth 2.0 response types the application may use",
+				Validators:          []validator.Set{setvalidator.SizeAtLeast(1)},
 			},
 			"token_endpoint_auth_method": schema.StringAttribute{
 				Optional:            true,
@@ -110,14 +124,12 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"tos_uri": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "URI that the client provides to the end-user to read about the client's terms of service",
+				Validators:          []validator.String{stringvalidator.LengthAtLeast(1)},
 			},
 			"secret": schema.StringAttribute{
 				Computed:            true,
 				Sensitive:           true,
 				MarkdownDescription: "Application secret",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
 			},
 		},
 	}
@@ -161,17 +173,17 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	data.Id = data.ClientId // Our ID will match the client ID which is unique
-
-	if _, err := r.conn.Get(ctx, &identity.GetAppRequest{
-		Organization: r.org,
-		ClientId:     data.ClientId.ValueString(),
-	}); err == nil {
-		resp.Diagnostics.AddError(
-			"Application already exists",
-			fmt.Sprintf("Application with client ID %s already exists", data.ClientId.ValueString()),
-		)
-		return
+	if !data.ClientId.IsUnknown() {
+		if _, err := r.conn.Get(ctx, &identity.GetAppRequest{
+			Organization: r.org,
+			ClientId:     data.ClientId.ValueString(),
+		}); err == nil {
+			resp.Diagnostics.AddError(
+				"Application already exists",
+				fmt.Sprintf("Application with client ID %s already exists", data.ClientId.ValueString()),
+			)
+			return
+		}
 	}
 
 	createRequest := &identity.CreateAppRequest{
@@ -239,6 +251,10 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
+	data.Id = types.StringValue(app.App.ClientId)
+	if data.ClientId.IsUnknown() {
+		data.ClientId = data.Id
+	}
 	data.Secret = types.StringValue(app.App.ClientSecret)
 
 	// Save data into Terraform state
@@ -271,20 +287,32 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
-	data.ClientId = types.StringValue(app.App.ClientId)
+	// A requested client_id may differ from the assigned one; overwriting it would force replacement.
+	if data.ClientId.IsNull() {
+		data.ClientId = types.StringValue(app.App.ClientId)
+	}
+	// Older versions stored the requested client ID as id; the server still resolves it.
+	data.Id = types.StringValue(app.App.ClientId)
 	data.ClientName = types.StringValue(app.App.ClientName)
-	data.ClientUri = types.StringValue(app.App.ClientUri)
+	data.ClientUri = stringOrNull(app.App.ClientUri)
 	data.GrantTypes = convertArrayToSetGetter(app.App.GrantTypes, func(g identity.GrantTypes) string {
 		return identity.GrantTypes_name[int32(g)]
 	})
-	data.LogoUri = types.StringValue(app.App.LogoUri)
-	data.PolicyUri = types.StringValue(app.App.PolicyUri)
-	data.RedirectUris = convertStringsToSet(app.App.RedirectUris)
-	data.ResponseTypes = convertArrayToSetGetter(app.App.ResponseTypes, func(r identity.ResponseTypes) string {
-		return identity.ResponseTypes_name[int32(r)]
-	})
+	data.LogoUri = stringOrNull(app.App.LogoUri)
+	data.PolicyUri = stringOrNull(app.App.PolicyUri)
+	// Empty server values are stored as null (unset), including over "" / [] written by older versions.
+	data.RedirectUris = types.SetNull(types.StringType)
+	if len(app.App.RedirectUris) > 0 {
+		data.RedirectUris = convertStringsToSet(app.App.RedirectUris)
+	}
+	data.ResponseTypes = types.SetNull(types.StringType)
+	if len(app.App.ResponseTypes) > 0 {
+		data.ResponseTypes = convertArrayToSetGetter(app.App.ResponseTypes, func(r identity.ResponseTypes) string {
+			return identity.ResponseTypes_name[int32(r)]
+		})
+	}
 	data.TokenEndpointAuthMethod = types.StringValue(identity.TokenEndpointAuthMethod_name[int32(app.App.TokenEndpointAuthMethod)])
-	data.TosUri = types.StringValue(app.App.TosUri)
+	data.TosUri = stringOrNull(app.App.TosUri)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -302,7 +330,7 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	updateRequest := &identity.UpdateAppRequest{
 		Organization: r.org,
-		ClientId:     data.ClientId.ValueString(),
+		ClientId:     data.Id.ValueString(),
 		ClientName:   data.ClientName.ValueString(),
 		ClientUri:    data.ClientUri.ValueString(),
 		LogoUri:      data.LogoUri.ValueString(),
@@ -345,7 +373,7 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 	updateRequest.TokenEndpointAuthMethod = identity.TokenEndpointAuthMethod(tokenEndpointAuthMethod)
 
-	_, err := r.conn.Update(ctx, updateRequest)
+	updateResp, err := r.conn.Update(ctx, updateRequest)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -354,7 +382,12 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
-	data.Id = data.ClientId
+	// UpdateApp rotates the client secret; keep the prior one only if none is returned.
+	if secret := updateResp.GetApp().GetClientSecret(); secret != "" {
+		data.Secret = types.StringValue(secret)
+	} else {
+		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("secret"), &data.Secret)...)
+	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -385,4 +418,11 @@ func (r *AppResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 
 func (r *AppResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func stringOrNull(value string) types.String {
+	if value == "" {
+		return types.StringNull()
+	}
+	return types.StringValue(value)
 }

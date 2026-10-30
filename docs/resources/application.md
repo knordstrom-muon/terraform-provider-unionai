@@ -9,13 +9,12 @@ description: |-
 
 Manages a Union.ai OAuth application. Applications are OAuth 2.0 clients that can authenticate with Union.ai.
 
-**Note:** The `client_id` attribute cannot be changed after creation. Changing it will force replacement of the resource.
+**Note:** Union assigns the OAuth client ID. Use `id` (not the configured `client_id`) with `secret` to authenticate.
 
 ## Example Usage
 
 ```terraform
 resource "unionai_application" "web_app" {
-  client_id   = "my-web-app"
   client_name = "My Web Application"
   client_uri  = "https://example.com"
   logo_uri    = "https://example.com/logo.png"
@@ -50,11 +49,11 @@ output "app_secret" {
 
 ### Required
 
-- `client_id` (String) The OAuth client ID for the application. This must be unique within your organization. Changing this forces a new resource to be created.
 - `client_name` (String) Human-readable name of the application.
 
 ### Optional
 
+- `client_id` (String, Deprecated) Requested client ID. Union may ignore it and assign a different one; use `id`. Defaults to `id`. Changing this forces a new resource to be created; adding it to an existing resource replaces the application, so remove it rather than setting it to silence the warning.
 - `client_uri` (String) URI of the application's website.
 - `consent_method` (String) The consent method used by the application. Common values include `CONSENT_METHOD_REQUIRED`.
 - `grant_types` (Set of String) List of OAuth 2.0 grant types the application may use. Common values: `CLIENT_CREDENTIALS`, `AUTHORIZATION_CODE`, `REFRESH_TOKEN`.
@@ -67,18 +66,20 @@ output "app_secret" {
 
 ### Read-Only
 
-- `id` (String) The unique identifier of the application.
-- `secret` (String, Sensitive) The OAuth client secret. This is only available after creation and is stored in the Terraform state. Handle this value securely.
+- `id` (String) The server-assigned OAuth client ID of the application.
+- `secret` (String, Sensitive) The OAuth client secret, set on creation and on every in-place update (Union rotates it on update). Stored in the Terraform state. Handle this value securely.
 
 ## Important Notes
 
+- Leave optional URIs and sets unset; `""` and `[]` are rejected because Union stores them as unset.
 - The `secret` attribute contains sensitive OAuth credentials. Ensure your Terraform state is stored securely.
-- The application secret is only computed once during creation. If you lose access to the state file, you will need to create a new application.
+- Union rotates the secret on every in-place update; the previous secret stops working. Propagate `secret` to its consumers after any update.
+- Tenants on Union's current identity platform drop the `AUTHORIZATION_CODE` grant, `response_types` and `redirect_uris`. Setting them there plans an update, and so a secret rotation, on every apply; use `grant_types = ["CLIENT_CREDENTIALS"]` only.
 - Applications created through this resource always skip default policy assignments for their backing OAuth app. Manage access explicitly with application access resources if needed.
 
 ## Import
 
-Applications can be imported using their client ID, but note that the secret will not be available after import:
+Applications can be imported using their server-assigned client ID (`id`). The secret is not available after import; it is populated (rotated) the next time the application is updated:
 
 ```shell
 terraform import unionai_application.example client-id
