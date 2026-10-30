@@ -63,10 +63,13 @@ func TestApiKeyResource_ReadDelete_UseClientId(t *testing.T) {
 	tests := []struct {
 		name     string
 		clientId types.String
+		secret   string
 		expected string
 	}{
-		{"server-assigned client_id", types.StringValue("123456"), "123456"},
-		{"state without client_id falls back to id", types.StringNull(), "my-key"},
+		{"server-assigned client_id", types.StringValue("123456"), "x", "123456"},
+		{"state without client_id uses the ID encoded in secret", types.StringNull(),
+			base64.StdEncoding.EncodeToString([]byte("example.com:999999:s3cret:None")), "999999"},
+		{"state without client_id or decodable secret falls back to id", types.StringNull(), "x", "my-key"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -84,7 +87,7 @@ func TestApiKeyResource_ReadDelete_UseClientId(t *testing.T) {
 				},
 			}
 			r := &ApiKeyResource{conn: mock, org: "test-org"}
-			state := newApiKeyState(t, ApiKeyResourceModel{Id: types.StringValue("my-key"), ClientId: tt.clientId, Secret: types.StringValue("x")})
+			state := newApiKeyState(t, ApiKeyResourceModel{Id: types.StringValue("my-key"), ClientId: tt.clientId, Secret: types.StringValue(tt.secret)})
 
 			readResp := &resource.ReadResponse{State: state}
 			r.Read(context.Background(), resource.ReadRequest{State: state}, readResp)

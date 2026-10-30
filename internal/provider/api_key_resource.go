@@ -217,10 +217,14 @@ func (r *ApiKeyResource) ImportState(ctx context.Context, req resource.ImportSta
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// clientId falls back to id for state written before client_id was tracked.
+// clientId recovers the client ID for state written before client_id was tracked: from the
+// encoded secret (it holds the server-assigned ID), else id.
 func (m ApiKeyResourceModel) clientId() string {
-	if m.ClientId.IsNull() {
-		return m.Id.ValueString()
+	if !m.ClientId.IsNull() {
+		return m.ClientId.ValueString()
 	}
-	return m.ClientId.ValueString()
+	if _, clientId, _, _, err := decodeApiKey(m.Secret.ValueString()); err == nil && clientId != "" {
+		return clientId
+	}
+	return m.Id.ValueString()
 }
