@@ -216,6 +216,30 @@ func TestAppResource_Read_UsesId(t *testing.T) {
 	}
 }
 
+func TestAppResource_Read_StoresServerAssignedId(t *testing.T) {
+	mock := &mockAppsClient{
+		getFn: func(ctx context.Context, req *identity.GetAppRequest) (*identity.GetAppResponse, error) {
+			return &identity.GetAppResponse{App: &identity.App{ClientId: "123456", ClientName: "fire-products-ci"}}, nil
+		},
+	}
+	r := &AppResource{conn: mock, org: "test-org"}
+	state := newAppState(t, testAppModel(types.StringValue("fire-products-ci"), types.StringValue("fire-products-ci")))
+	resp := &resource.ReadResponse{State: state}
+	r.Read(context.Background(), resource.ReadRequest{State: state}, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Read() returned errors: %v", resp.Diagnostics.Errors())
+	}
+	var data AppResourceModel
+	resp.State.Get(context.Background(), &data)
+	if data.Id.ValueString() != "123456" {
+		t.Errorf("Expected id '123456', got '%s'", data.Id.ValueString())
+	}
+	if data.ClientId.ValueString() != "fire-products-ci" {
+		t.Errorf("Expected client_id 'fire-products-ci', got '%s'", data.ClientId.ValueString())
+	}
+}
+
 func TestAppResource_Read_KeepsUnsetOptionalNull(t *testing.T) {
 	empty := types.SetValueMust(types.StringType, []attr.Value{})
 	tests := []struct {

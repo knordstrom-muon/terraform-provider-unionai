@@ -291,6 +291,8 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	if data.ClientId.IsNull() {
 		data.ClientId = types.StringValue(app.App.ClientId)
 	}
+	// Older versions stored the requested client ID as id; the server still resolves it.
+	data.Id = types.StringValue(app.App.ClientId)
 	data.ClientName = types.StringValue(app.App.ClientName)
 	data.ClientUri = stringOrNull(app.App.ClientUri)
 	data.GrantTypes = convertArrayToSetGetter(app.App.GrantTypes, func(g identity.GrantTypes) string {

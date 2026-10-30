@@ -74,6 +74,7 @@ output "app_secret" {
 - Leave optional URIs and sets unset; `""` and `[]` are rejected because Union stores them as unset.
 - The `secret` attribute contains sensitive OAuth credentials. Ensure your Terraform state is stored securely.
 - Union rotates the secret on every in-place update; the previous secret stops working. Propagate `secret` to its consumers after any update.
+- Tenants on Union's current identity platform drop the `AUTHORIZATION_CODE` grant, `response_types` and `redirect_uris`. Setting them there plans an update, and so a secret rotation, on every apply; use `grant_types = ["CLIENT_CREDENTIALS"]` only.
 - Applications created through this resource always skip default policy assignments for their backing OAuth app. Manage access explicitly with application access resources if needed.
 
 ## Import
