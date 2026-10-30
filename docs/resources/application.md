@@ -53,7 +53,7 @@ output "app_secret" {
 
 ### Optional
 
-- `client_id` (String, Deprecated) Requested client ID. Union may ignore it and assign a different one; use `id`. Defaults to `id`. Changing this forces a new resource to be created.
+- `client_id` (String, Deprecated) Requested client ID. Union may ignore it and assign a different one; use `id`. Defaults to `id`. Changing this forces a new resource to be created; adding it to an existing resource replaces the application, so remove it rather than setting it to silence the warning.
 - `client_uri` (String) URI of the application's website.
 - `consent_method` (String) The consent method used by the application. Common values include `CONSENT_METHOD_REQUIRED`.
 - `grant_types` (Set of String) List of OAuth 2.0 grant types the application may use. Common values: `CLIENT_CREDENTIALS`, `AUTHORIZATION_CODE`, `REFRESH_TOKEN`.
@@ -71,6 +71,7 @@ output "app_secret" {
 
 ## Important Notes
 
+- Leave optional URIs and sets unset instead of `""` or `[]`; empty values are stored as unset.
 - The `secret` attribute contains sensitive OAuth credentials. Ensure your Terraform state is stored securely.
 - Union rotates the secret on every in-place update; the previous secret stops working. Propagate `secret` to its consumers after any update.
 - Applications created through this resource always skip default policy assignments for their backing OAuth app. Manage access explicitly with application access resources if needed.

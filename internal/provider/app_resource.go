@@ -68,7 +68,7 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Optional:            true,
 				Computed:            true,
 				MarkdownDescription: "Requested client ID. Defaults to `id`. Union may assign a different client ID; use `id` for authentication.",
-				DeprecationMessage:  "Union assigns client IDs server-side and may ignore this value. Remove it and use `id`.",
+				DeprecationMessage:  "Union assigns client IDs server-side and may ignore this value. Remove it and use `id`; adding it to an existing resource forces replacement.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
@@ -283,23 +283,25 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		data.ClientId = types.StringValue(app.App.ClientId)
 	}
 	data.ClientName = types.StringValue(app.App.ClientName)
-	data.ClientUri = stringOrNull(data.ClientUri, app.App.ClientUri)
+	data.ClientUri = stringOrNull(app.App.ClientUri)
 	data.GrantTypes = convertArrayToSetGetter(app.App.GrantTypes, func(g identity.GrantTypes) string {
 		return identity.GrantTypes_name[int32(g)]
 	})
-	data.LogoUri = stringOrNull(data.LogoUri, app.App.LogoUri)
-	data.PolicyUri = stringOrNull(data.PolicyUri, app.App.PolicyUri)
-	// Keep unset optional attributes null when the server returns them empty.
-	if !data.RedirectUris.IsNull() || len(app.App.RedirectUris) > 0 {
+	data.LogoUri = stringOrNull(app.App.LogoUri)
+	data.PolicyUri = stringOrNull(app.App.PolicyUri)
+	// Empty server values are stored as null (unset), including over "" / [] written by older versions.
+	data.RedirectUris = types.SetNull(types.StringType)
+	if len(app.App.RedirectUris) > 0 {
 		data.RedirectUris = convertStringsToSet(app.App.RedirectUris)
 	}
-	if !data.ResponseTypes.IsNull() || len(app.App.ResponseTypes) > 0 {
+	data.ResponseTypes = types.SetNull(types.StringType)
+	if len(app.App.ResponseTypes) > 0 {
 		data.ResponseTypes = convertArrayToSetGetter(app.App.ResponseTypes, func(r identity.ResponseTypes) string {
 			return identity.ResponseTypes_name[int32(r)]
 		})
 	}
 	data.TokenEndpointAuthMethod = types.StringValue(identity.TokenEndpointAuthMethod_name[int32(app.App.TokenEndpointAuthMethod)])
-	data.TosUri = stringOrNull(data.TosUri, app.App.TosUri)
+	data.TosUri = stringOrNull(app.App.TosUri)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -407,9 +409,9 @@ func (r *AppResource) ImportState(ctx context.Context, req resource.ImportStateR
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func stringOrNull(prior types.String, value string) types.String {
-	if prior.IsNull() && value == "" {
-		return prior
+func stringOrNull(value string) types.String {
+	if value == "" {
+		return types.StringNull()
 	}
 	return types.StringValue(value)
 }

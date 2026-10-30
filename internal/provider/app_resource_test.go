@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -213,35 +214,48 @@ func TestAppResource_Read_UsesId(t *testing.T) {
 }
 
 func TestAppResource_Read_KeepsUnsetOptionalNull(t *testing.T) {
-	mock := &mockAppsClient{
-		getFn: func(ctx context.Context, req *identity.GetAppRequest) (*identity.GetAppResponse, error) {
-			return &identity.GetAppResponse{App: &identity.App{ClientId: "123456", ClientName: "fire-products-ci"}}, nil
-		},
+	empty := types.SetValueMust(types.StringType, []attr.Value{})
+	tests := []struct {
+		name     string
+		priorStr types.String
+		priorSet types.Set
+	}{
+		{"prior null", types.StringNull(), types.SetNull(types.StringType)},
+		{"prior empty from older versions", types.StringValue(""), empty},
 	}
-	r := &AppResource{conn: mock, org: "test-org"}
-	m := testAppModel(types.StringValue("123456"), types.StringValue("123456"))
-	m.RedirectUris = types.SetNull(types.StringType)
-	m.ResponseTypes = types.SetNull(types.StringType)
-	state := newAppState(t, m)
-	resp := &resource.ReadResponse{State: state}
-	r.Read(context.Background(), resource.ReadRequest{State: state}, resp)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockAppsClient{
+				getFn: func(ctx context.Context, req *identity.GetAppRequest) (*identity.GetAppResponse, error) {
+					return &identity.GetAppResponse{App: &identity.App{ClientId: "123456", ClientName: "fire-products-ci"}}, nil
+				},
+			}
+			r := &AppResource{conn: mock, org: "test-org"}
+			m := testAppModel(types.StringValue("123456"), types.StringValue("123456"))
+			m.ClientUri, m.LogoUri, m.PolicyUri, m.TosUri = tt.priorStr, tt.priorStr, tt.priorStr, tt.priorStr
+			m.RedirectUris, m.ResponseTypes = tt.priorSet, tt.priorSet
+			state := newAppState(t, m)
+			resp := &resource.ReadResponse{State: state}
+			r.Read(context.Background(), resource.ReadRequest{State: state}, resp)
 
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("Read() returned errors: %v", resp.Diagnostics.Errors())
-	}
-	var data AppResourceModel
-	resp.State.Get(context.Background(), &data)
-	for name, isNull := range map[string]bool{
-		"client_uri":     data.ClientUri.IsNull(),
-		"logo_uri":       data.LogoUri.IsNull(),
-		"policy_uri":     data.PolicyUri.IsNull(),
-		"tos_uri":        data.TosUri.IsNull(),
-		"redirect_uris":  data.RedirectUris.IsNull(),
-		"response_types": data.ResponseTypes.IsNull(),
-	} {
-		if !isNull {
-			t.Errorf("Expected %s to stay null", name)
-		}
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Read() returned errors: %v", resp.Diagnostics.Errors())
+			}
+			var data AppResourceModel
+			resp.State.Get(context.Background(), &data)
+			for name, isNull := range map[string]bool{
+				"client_uri":     data.ClientUri.IsNull(),
+				"logo_uri":       data.LogoUri.IsNull(),
+				"policy_uri":     data.PolicyUri.IsNull(),
+				"tos_uri":        data.TosUri.IsNull(),
+				"redirect_uris":  data.RedirectUris.IsNull(),
+				"response_types": data.ResponseTypes.IsNull(),
+			} {
+				if !isNull {
+					t.Errorf("Expected %s to be null", name)
+				}
+			}
+		})
 	}
 }
 
