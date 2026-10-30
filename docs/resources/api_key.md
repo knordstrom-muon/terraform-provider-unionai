@@ -33,6 +33,7 @@ output "api_key_secret" {
 
 ### Read-Only
 
+- `client_id` (String) The server-assigned OAuth client ID backing the API key.
 - `secret` (String, Sensitive) The API key secret. This is only available after creation and is stored in the Terraform state. Handle this value securely.
 
 ## Important Notes

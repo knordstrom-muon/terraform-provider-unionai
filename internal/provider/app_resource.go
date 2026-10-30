@@ -59,12 +59,18 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Application identifier",
+				MarkdownDescription: "Server-assigned OAuth client ID of the application",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"client_id": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Application identifier",
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Requested client ID. Defaults to `id`. Union may assign a different client ID; use `id` for authentication.",
+				DeprecationMessage:  "Union assigns client IDs server-side and may ignore this value. Remove it and use `id`.",
 				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
@@ -161,17 +167,17 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	data.Id = data.ClientId // Our ID will match the client ID which is unique
-
-	if _, err := r.conn.Get(ctx, &identity.GetAppRequest{
-		Organization: r.org,
-		ClientId:     data.ClientId.ValueString(),
-	}); err == nil {
-		resp.Diagnostics.AddError(
-			"Application already exists",
-			fmt.Sprintf("Application with client ID %s already exists", data.ClientId.ValueString()),
-		)
-		return
+	if !data.ClientId.IsUnknown() {
+		if _, err := r.conn.Get(ctx, &identity.GetAppRequest{
+			Organization: r.org,
+			ClientId:     data.ClientId.ValueString(),
+		}); err == nil {
+			resp.Diagnostics.AddError(
+				"Application already exists",
+				fmt.Sprintf("Application with client ID %s already exists", data.ClientId.ValueString()),
+			)
+			return
+		}
 	}
 
 	createRequest := &identity.CreateAppRequest{
@@ -239,6 +245,10 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
+	data.Id = types.StringValue(app.App.ClientId)
+	if data.ClientId.IsUnknown() {
+		data.ClientId = data.Id
+	}
 	data.Secret = types.StringValue(app.App.ClientSecret)
 
 	// Save data into Terraform state
@@ -271,7 +281,10 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
-	data.ClientId = types.StringValue(app.App.ClientId)
+	// A requested client_id may differ from the assigned one; overwriting it would force replacement.
+	if data.ClientId.IsNull() {
+		data.ClientId = types.StringValue(app.App.ClientId)
+	}
 	data.ClientName = types.StringValue(app.App.ClientName)
 	data.ClientUri = types.StringValue(app.App.ClientUri)
 	data.GrantTypes = convertArrayToSetGetter(app.App.GrantTypes, func(g identity.GrantTypes) string {
@@ -302,7 +315,7 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	updateRequest := &identity.UpdateAppRequest{
 		Organization: r.org,
-		ClientId:     data.ClientId.ValueString(),
+		ClientId:     data.Id.ValueString(),
 		ClientName:   data.ClientName.ValueString(),
 		ClientUri:    data.ClientUri.ValueString(),
 		LogoUri:      data.LogoUri.ValueString(),
@@ -353,8 +366,6 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		)
 		return
 	}
-
-	data.Id = data.ClientId
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

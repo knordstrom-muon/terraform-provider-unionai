@@ -13,7 +13,6 @@ Manages access policies for a Union.ai application. This resource assigns polici
 
 ```terraform
 resource "unionai_application" "ci_app" {
-  client_id   = "ci-pipeline"
   client_name = "CI/CD Pipeline"
 
   grant_types = ["CLIENT_CREDENTIALS"]

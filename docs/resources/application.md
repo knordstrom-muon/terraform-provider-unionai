@@ -9,13 +9,12 @@ description: |-
 
 Manages a Union.ai OAuth application. Applications are OAuth 2.0 clients that can authenticate with Union.ai.
 
-**Note:** The `client_id` attribute cannot be changed after creation. Changing it will force replacement of the resource.
+**Note:** Union assigns the OAuth client ID. Use `id` (not the configured `client_id`) with `secret` to authenticate.
 
 ## Example Usage
 
 ```terraform
 resource "unionai_application" "web_app" {
-  client_id   = "my-web-app"
   client_name = "My Web Application"
   client_uri  = "https://example.com"
   logo_uri    = "https://example.com/logo.png"
@@ -50,11 +49,11 @@ output "app_secret" {
 
 ### Required
 
-- `client_id` (String) The OAuth client ID for the application. This must be unique within your organization. Changing this forces a new resource to be created.
 - `client_name` (String) Human-readable name of the application.
 
 ### Optional
 
+- `client_id` (String, Deprecated) Requested client ID. Union may ignore it and assign a different one; use `id`. Defaults to `id`. Changing this forces a new resource to be created.
 - `client_uri` (String) URI of the application's website.
 - `consent_method` (String) The consent method used by the application. Common values include `CONSENT_METHOD_REQUIRED`.
 - `grant_types` (Set of String) List of OAuth 2.0 grant types the application may use. Common values: `CLIENT_CREDENTIALS`, `AUTHORIZATION_CODE`, `REFRESH_TOKEN`.
@@ -67,7 +66,7 @@ output "app_secret" {
 
 ### Read-Only
 
-- `id` (String) The unique identifier of the application.
+- `id` (String) The server-assigned OAuth client ID of the application.
 - `secret` (String, Sensitive) The OAuth client secret. This is only available after creation and is stored in the Terraform state. Handle this value securely.
 
 ## Important Notes
@@ -78,7 +77,7 @@ output "app_secret" {
 
 ## Import
 
-Applications can be imported using their client ID, but note that the secret will not be available after import:
+Applications can be imported using their server-assigned client ID (`id`), but note that the secret will not be available after import:
 
 ```shell
 terraform import unionai_application.example client-id
