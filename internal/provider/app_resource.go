@@ -121,9 +121,6 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Computed:            true,
 				Sensitive:           true,
 				MarkdownDescription: "Application secret",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
 			},
 		},
 	}
@@ -286,18 +283,23 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		data.ClientId = types.StringValue(app.App.ClientId)
 	}
 	data.ClientName = types.StringValue(app.App.ClientName)
-	data.ClientUri = types.StringValue(app.App.ClientUri)
+	data.ClientUri = stringOrNull(data.ClientUri, app.App.ClientUri)
 	data.GrantTypes = convertArrayToSetGetter(app.App.GrantTypes, func(g identity.GrantTypes) string {
 		return identity.GrantTypes_name[int32(g)]
 	})
-	data.LogoUri = types.StringValue(app.App.LogoUri)
-	data.PolicyUri = types.StringValue(app.App.PolicyUri)
-	data.RedirectUris = convertStringsToSet(app.App.RedirectUris)
-	data.ResponseTypes = convertArrayToSetGetter(app.App.ResponseTypes, func(r identity.ResponseTypes) string {
-		return identity.ResponseTypes_name[int32(r)]
-	})
+	data.LogoUri = stringOrNull(data.LogoUri, app.App.LogoUri)
+	data.PolicyUri = stringOrNull(data.PolicyUri, app.App.PolicyUri)
+	// Keep unset optional attributes null when the server returns them empty.
+	if !data.RedirectUris.IsNull() || len(app.App.RedirectUris) > 0 {
+		data.RedirectUris = convertStringsToSet(app.App.RedirectUris)
+	}
+	if !data.ResponseTypes.IsNull() || len(app.App.ResponseTypes) > 0 {
+		data.ResponseTypes = convertArrayToSetGetter(app.App.ResponseTypes, func(r identity.ResponseTypes) string {
+			return identity.ResponseTypes_name[int32(r)]
+		})
+	}
 	data.TokenEndpointAuthMethod = types.StringValue(identity.TokenEndpointAuthMethod_name[int32(app.App.TokenEndpointAuthMethod)])
-	data.TosUri = types.StringValue(app.App.TosUri)
+	data.TosUri = stringOrNull(data.TosUri, app.App.TosUri)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -358,13 +360,20 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 	updateRequest.TokenEndpointAuthMethod = identity.TokenEndpointAuthMethod(tokenEndpointAuthMethod)
 
-	_, err := r.conn.Update(ctx, updateRequest)
+	updateResp, err := r.conn.Update(ctx, updateRequest)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
 			fmt.Sprintf("Unable to update oauth app, got error: %s", err),
 		)
 		return
+	}
+
+	// UpdateApp rotates the client secret; keep the prior one only if none is returned.
+	if secret := updateResp.GetApp().GetClientSecret(); secret != "" {
+		data.Secret = types.StringValue(secret)
+	} else {
+		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("secret"), &data.Secret)...)
 	}
 
 	// Save updated data into Terraform state
@@ -396,4 +405,11 @@ func (r *AppResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 
 func (r *AppResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func stringOrNull(prior types.String, value string) types.String {
+	if prior.IsNull() && value == "" {
+		return prior
+	}
+	return types.StringValue(value)
 }

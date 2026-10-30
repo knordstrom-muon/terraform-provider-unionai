@@ -212,6 +212,39 @@ func TestAppResource_Read_UsesId(t *testing.T) {
 	}
 }
 
+func TestAppResource_Read_KeepsUnsetOptionalNull(t *testing.T) {
+	mock := &mockAppsClient{
+		getFn: func(ctx context.Context, req *identity.GetAppRequest) (*identity.GetAppResponse, error) {
+			return &identity.GetAppResponse{App: &identity.App{ClientId: "123456", ClientName: "fire-products-ci"}}, nil
+		},
+	}
+	r := &AppResource{conn: mock, org: "test-org"}
+	m := testAppModel(types.StringValue("123456"), types.StringValue("123456"))
+	m.RedirectUris = types.SetNull(types.StringType)
+	m.ResponseTypes = types.SetNull(types.StringType)
+	state := newAppState(t, m)
+	resp := &resource.ReadResponse{State: state}
+	r.Read(context.Background(), resource.ReadRequest{State: state}, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Read() returned errors: %v", resp.Diagnostics.Errors())
+	}
+	var data AppResourceModel
+	resp.State.Get(context.Background(), &data)
+	for name, isNull := range map[string]bool{
+		"client_uri":     data.ClientUri.IsNull(),
+		"logo_uri":       data.LogoUri.IsNull(),
+		"policy_uri":     data.PolicyUri.IsNull(),
+		"tos_uri":        data.TosUri.IsNull(),
+		"redirect_uris":  data.RedirectUris.IsNull(),
+		"response_types": data.ResponseTypes.IsNull(),
+	} {
+		if !isNull {
+			t.Errorf("Expected %s to stay null", name)
+		}
+	}
+}
+
 func TestAppResource_Read_NotFound(t *testing.T) {
 	r := &AppResource{conn: &mockAppsClient{getFn: notFoundGet}, org: "test-org"}
 	state := newAppState(t, testAppModel(types.StringValue("123456"), types.StringValue("123456")))
@@ -238,7 +271,7 @@ func TestAppResource_Update_UsesId(t *testing.T) {
 	m := testAppModel(types.StringValue("123456"), types.StringValue("fire-products-ci"))
 	m.Secret = types.StringValue("s3cret")
 	resp := &resource.UpdateResponse{State: tfsdk.State{Schema: testAppSchema(t).Schema}}
-	r.Update(context.Background(), resource.UpdateRequest{Plan: newAppPlan(t, m)}, resp)
+	r.Update(context.Background(), resource.UpdateRequest{Plan: newAppPlan(t, m), State: newAppState(t, m)}, resp)
 
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("Update() returned errors: %v", resp.Diagnostics.Errors())
@@ -250,6 +283,42 @@ func TestAppResource_Update_UsesId(t *testing.T) {
 	resp.State.Get(context.Background(), &data)
 	if data.Id.ValueString() != "123456" || data.ClientId.ValueString() != "fire-products-ci" {
 		t.Errorf("Expected id '123456' and client_id 'fire-products-ci', got '%s' and '%s'", data.Id.ValueString(), data.ClientId.ValueString())
+	}
+}
+
+func TestAppResource_Update_Secret(t *testing.T) {
+	tests := []struct {
+		name           string
+		returnedSecret string
+		expectedSecret string
+	}{
+		{"rotated secret is stored", "new-s3cret", "new-s3cret"},
+		{"prior secret kept when none returned", "", "old-s3cret"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockAppsClient{
+				updateFn: func(ctx context.Context, req *identity.UpdateAppRequest) (*identity.UpdateAppResponse, error) {
+					return &identity.UpdateAppResponse{App: &identity.App{ClientId: "123456", ClientSecret: tt.returnedSecret}}, nil
+				},
+			}
+			r := &AppResource{conn: mock, org: "test-org"}
+			prior := testAppModel(types.StringValue("123456"), types.StringValue("123456"))
+			prior.Secret = types.StringValue("old-s3cret")
+			planned := prior
+			planned.Secret = types.StringUnknown()
+			resp := &resource.UpdateResponse{State: tfsdk.State{Schema: testAppSchema(t).Schema}}
+			r.Update(context.Background(), resource.UpdateRequest{Plan: newAppPlan(t, planned), State: newAppState(t, prior)}, resp)
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Update() returned errors: %v", resp.Diagnostics.Errors())
+			}
+			var data AppResourceModel
+			resp.State.Get(context.Background(), &data)
+			if data.Secret.ValueString() != tt.expectedSecret {
+				t.Errorf("Expected secret '%s', got '%s'", tt.expectedSecret, data.Secret.ValueString())
+			}
+		})
 	}
 }
 

@@ -67,17 +67,17 @@ output "app_secret" {
 ### Read-Only
 
 - `id` (String) The server-assigned OAuth client ID of the application.
-- `secret` (String, Sensitive) The OAuth client secret. This is only available after creation and is stored in the Terraform state. Handle this value securely.
+- `secret` (String, Sensitive) The OAuth client secret, set on creation and on every in-place update (Union rotates it on update). Stored in the Terraform state. Handle this value securely.
 
 ## Important Notes
 
 - The `secret` attribute contains sensitive OAuth credentials. Ensure your Terraform state is stored securely.
-- The application secret is only computed once during creation. If you lose access to the state file, you will need to create a new application.
+- Union rotates the secret on every in-place update; the previous secret stops working. Propagate `secret` to its consumers after any update.
 - Applications created through this resource always skip default policy assignments for their backing OAuth app. Manage access explicitly with application access resources if needed.
 
 ## Import
 
-Applications can be imported using their server-assigned client ID (`id`), but note that the secret will not be available after import:
+Applications can be imported using their server-assigned client ID (`id`). The secret is not available after import; it is populated (rotated) the next time the application is updated:
 
 ```shell
 terraform import unionai_application.example client-id
